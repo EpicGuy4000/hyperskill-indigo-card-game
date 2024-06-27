@@ -31,6 +31,8 @@ data class Card(val rank: Rank, val suit: Suit) {
     override fun toString(): String = "$rank$suit"
 }
 
+class Action(val command: String, val isTerminating: Boolean = false, val execute: () -> Unit)
+
 fun main() {
     val originalDeck = buildList {
         for (rank in Rank.entries) {
@@ -42,45 +44,52 @@ fun main() {
 
     var currentDeck = originalDeck.toMutableList()
 
+    val actions = buildList {
+        add(Action("reset") {
+            currentDeck = originalDeck.toMutableList()
+            println("Card deck is reset.")
+        })
+        add(Action("shuffle") {
+            currentDeck = currentDeck.shuffled().toMutableList()
+            println("Card deck is shuffled.")
+        })
+        add(Action("get") {
+            println("Number of cards:")
+            readln().toIntOrNull().let { numberOfCards ->
+                if (numberOfCards == null || numberOfCards !in 1..52) {
+                    println("Invalid number of cards.")
+                    return@let
+                }
+                if (numberOfCards > currentDeck.size) {
+                    println("The remaining cards are insufficient to meet the request.")
+                    return@let
+                }
+
+                val removedCards = currentDeck.take(numberOfCards)
+                currentDeck = currentDeck.subList(numberOfCards, currentDeck.size)
+                println(removedCards.joinToString(" "))
+            }
+        })
+        add(Action("exit", true) {
+            println("Bye")
+        })
+    }.associateBy { it.command }
+
     var commandString: String
 
     while(true) {
-        println("Choose an action (reset, shuffle, get, exit):")
+        println("Choose an action (${actions.keys.joinToString(", ")}):")
         commandString = readln()
 
-        when(commandString) {
-            "exit" -> {
-                println("Bye")
-                break
-            }
-            "reset" -> {
-                currentDeck = originalDeck.toMutableList()
-                println("Card deck is reset.")
-            }
-            "shuffle" -> {
-                currentDeck = currentDeck.shuffled().toMutableList()
-                println("Card deck is shuffled.")
-            }
-            "get" -> {
-                println("Number of cards:")
-                readln().toIntOrNull().let { numberOfCards ->
-                    if (numberOfCards == null || numberOfCards !in 1..52) {
-                        println("Invalid number of cards.")
-                        return@let
-                    }
-                    if (numberOfCards > currentDeck.size) {
-                        println("The remaining cards are insufficient to meet the request.")
-                        return@let
-                    }
+        val action = actions[commandString]
 
-                    val removedCards = currentDeck.take(numberOfCards)
-                    currentDeck = currentDeck.subList(numberOfCards, currentDeck.size)
-                    println(removedCards.joinToString(" "))
-                }
-            }
-            else -> {
-                println("Wrong action.")
-            }
+        if (action == null) {
+            println("Wrong action.")
+            continue
         }
+
+        action.execute.invoke()
+
+        if (action.isTerminating) break
     }
 }
