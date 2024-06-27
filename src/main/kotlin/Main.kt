@@ -32,10 +32,7 @@ data class Card(val rank: Rank, val suit: Suit) {
 }
 
 fun main() {
-    println(Rank.entries.joinToString(" ") { it.symbol } )
-    println(Suit.entries.joinToString(" ") { it.symbol } )
-
-    val deck = buildList {
+    val originalDeck = buildList {
         for (rank in Rank.entries) {
             for (suit in Suit.entries) {
                 add(Card(rank, suit))
@@ -43,5 +40,47 @@ fun main() {
         }
     }
 
-    println(deck.shuffled().joinToString(" "))
+    var currentDeck = originalDeck.toMutableList()
+
+    var commandString: String
+
+    while(true) {
+        println("Choose an action (reset, shuffle, get, exit):")
+        commandString = readln()
+
+        when(commandString) {
+            "exit" -> {
+                println("Bye")
+                break
+            }
+            "reset" -> {
+                currentDeck = originalDeck.toMutableList()
+                println("Card deck is reset.")
+            }
+            "shuffle" -> {
+                currentDeck = currentDeck.shuffled().toMutableList()
+                println("Card deck is shuffled.")
+            }
+            "get" -> {
+                println("Number of cards:")
+                readln().toIntOrNull().let { numberOfCards ->
+                    if (numberOfCards == null || numberOfCards !in 1..52) {
+                        println("Invalid number of cards.")
+                        return@let
+                    }
+                    if (numberOfCards > currentDeck.size) {
+                        println("The remaining cards are insufficient to meet the request.")
+                        return@let
+                    }
+
+                    val removedCards = currentDeck.take(numberOfCards)
+                    currentDeck = currentDeck.subList(numberOfCards, currentDeck.size)
+                    println(removedCards.joinToString(" "))
+                }
+            }
+            else -> {
+                println("Wrong action.")
+            }
+        }
+    }
 }
