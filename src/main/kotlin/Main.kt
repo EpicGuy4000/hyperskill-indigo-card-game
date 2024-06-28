@@ -1,6 +1,6 @@
 package indigo
 
-enum class Rank(val symbol: String, val value: Int) {
+enum class Rank(private val symbol: String, val value: Int) {
     ACE("A", 1),
     TWO("2", 2),
     THREE("3", 3),
@@ -18,7 +18,7 @@ enum class Rank(val symbol: String, val value: Int) {
     override fun toString(): String = symbol
 }
 
-enum class Suit(val symbol: String) {
+enum class Suit(private val symbol: String) {
     DIAMONDS("♦"),
     HEARTS("♥"),
     SPADES("♠"),
@@ -31,13 +31,52 @@ data class Card(val rank: Rank, val suit: Suit) {
     override fun toString(): String = "$rank$suit"
 }
 
-class Action(val command: String, val execute: () -> Unit)
-
 const val CARDS_ON_INIT = 4
 const val CARDS_PER_TURN = 6
 
-fun main() {
-    val originalDeck = buildList {
+interface Player {
+    val cards: MutableList<Card>
+    fun takeTurn()
+}
+
+private class GameOverException: Exception()
+
+class Person: Player {
+    override val cards = mutableListOf<Card>()
+    override fun takeTurn() {
+        println("Cards in hand: ${cards.withIndex().joinToString(" ") { "${it.index + 1})${it.value}" }}")
+        var chosenCard: Int? = null
+
+        while (chosenCard == null || chosenCard !in 1..cards.size) {
+            println("Choose a card to play (1-${cards.size}):")
+            val input = readln()
+            if (input == "exit") throw GameOverException()
+            chosenCard = input.toIntOrNull()
+        }
+
+        Game.table.cards.add(cards.removeAt(chosenCard - 1))
+        println(Game.table)
+    }
+}
+
+class Computer: Player {
+    override val cards = mutableListOf<Card>()
+    override fun takeTurn() {
+        val cardToPlay = cards.removeAt(0)
+        Game.table.cards.add(cardToPlay)
+        println("Computer plays $cardToPlay\n")
+        println(Game.table)
+    }
+}
+
+class Table {
+    val cards = mutableListOf<Card>()
+
+    override fun toString(): String = "${cards.size} cards on the table, and the top card is ${cards.last()}"
+}
+
+class Dealer: Player {
+    private val newDeck = buildList {
         for (rank in Rank.entries) {
             for (suit in Suit.entries) {
                 add(Card(rank, suit))
@@ -45,117 +84,82 @@ fun main() {
         }
     }
 
-    var currentDeck = originalDeck.toMutableList()
-    val currentTable = mutableListOf<Card>()
-    val playerCards = mutableListOf<Card>()
-    val computerCards = mutableListOf<Card>()
-    var isGameCompleted = false
+    override var cards = mutableListOf<Card>()
 
-    var onWrongAction: () -> Unit = {
-        println("Play first?")
+    override fun takeTurn() = if (cards.size == 0) newGame() else deal()
+
+    private fun newGame() {
+        Game.person.cards.clear()
+        Game.computer.cards.clear()
+        Game.table.cards.clear()
+        cards.clear()
+        cards.addAll(newDeck.shuffled())
+
+        Game.table.cards.addAll(cards.take(CARDS_ON_INIT))
+        cards = cards.subList(CARDS_ON_INIT, cards.size)
+        deal()
+
+        println("Initial cards on the table: ${Game.table.cards.joinToString(" ")}\n")
+        println(Game.table)
     }
 
-    val gameActions = buildList {
-        add(Action("exit") {
-            isGameCompleted = true
-        })
+    private fun deal() {
+        dealHand(Game.person)
+        dealHand(Game.computer)
     }
 
-    val availableActions = mutableListOf<Action>()
-
-    var hiddenActions: Map<String, Action> = emptyMap()
-
-    hiddenActions = buildList {
-        add(Action("init"){
-            currentDeck = currentDeck.shuffled().toMutableList()
-            currentTable.addAll(currentDeck.take(CARDS_ON_INIT))
-            currentDeck = currentDeck.subList(CARDS_ON_INIT, currentDeck.size)
-
-            println("Initial cards on the table: ${currentTable.joinToString(" ")}\n")
-            onWrongAction = {
-                println("Choose a card to play (1-${playerCards.lastIndex + 1}):")
-            }
-
-            hiddenActions["deal"]!!.execute()
-        })
-        add(Action("deal") {
-            if (currentDeck.size == 0) {
-                hiddenActions["prepareCards"]!!.execute()
-                isGameCompleted = true
-                return@Action
-            }
-
-            playerCards.addAll(currentDeck.take(CARDS_PER_TURN))
-            currentDeck = currentDeck.subList(CARDS_PER_TURN, currentDeck.size)
-            computerCards.addAll(currentDeck.take(CARDS_PER_TURN))
-            currentDeck = currentDeck.subList(CARDS_PER_TURN, currentDeck.size)
-
-            hiddenActions["prepareCards"]!!.execute()
-        })
-        add(Action("player") {
-            println("Cards in hand: ${playerCards.withIndex().joinToString(" ") { "${it.index + 1})${it.value}" } }")
-            println("Choose a card to play (1-${playerCards.lastIndex + 1}):")
-        })
-        add(Action("computer") {
-            println("Computer plays ${computerCards.first()}\n")
-            currentTable.add(computerCards.first())
-            computerCards.removeAt(0)
-
-            if (playerCards.size == 0) hiddenActions["deal"]!!.execute()
-            else hiddenActions["prepareCards"]!!.execute()
-
-            if (!isGameCompleted) hiddenActions["player"]!!.execute()
-        })
-        add(Action("prepareCards") {
-            availableActions.apply {
-                clear()
-                addAll(gameActions)
-
-                for ((index, card) in playerCards.withIndex()) {
-                    add(Action("${index + 1}") InnerAction@{
-                        playerCards.remove(card)
-                        currentTable.add(card)
-
-                        if (computerCards.size == 0) hiddenActions["deal"]!!.execute()
-                        else hiddenActions["prepareCards"]!!.execute()
-
-                        if (!isGameCompleted) hiddenActions["computer"]!!.execute()
-                    })
-                }
-
-                println("${currentTable.size} cards on the table, and the top card is ${currentTable.last()}")
-            }
-        })
-    }.associateBy { it.command }
-
-    val startingActions = buildList {
-        add(Action("yes") {
-            hiddenActions["init"]!!.execute()
-            hiddenActions["player"]!!.execute()
-        })
-        add(Action("no") {
-            hiddenActions["init"]!!.execute()
-            hiddenActions["computer"]!!.execute()
-        })
+    private fun dealHand(player: Player) {
+        player.cards.addAll(cards.take(CARDS_PER_TURN))
+        cards = cards.subList(CARDS_PER_TURN, cards.size)
     }
+}
 
-    println("Indigo Card Game")
-    println("Play first?")
+object Game {
+    val person = Person()
+    val computer = Computer()
+    val table = Table()
+    private val dealer = Dealer()
 
-    availableActions.addAll(startingActions)
+    private val turns = mutableListOf<Player>(dealer)
+    private var turnNumber = 0
 
-    while(!isGameCompleted) {
-        val commandString = readln().lowercase()
+    fun start(startingPlayer: Player) {
+        turns.add(startingPlayer)
+        if (startingPlayer !== person) turns.add(person)
+        else turns.add(computer)
 
-        val action = availableActions.firstOrNull { it.command == commandString }
-
-        if (action == null) {
-            onWrongAction()
-            continue
+        while (!isOver()) {
+            nextTurn()
         }
 
-        action.execute()
+        println("Game over")
     }
 
-    println("Game over")
+    private fun nextTurn() {
+        val nextPlayer = turns[turnNumber % turns.size]
+        turnNumber++
+
+        if (nextPlayer === dealer && (person.cards.size != 0 || computer.cards.size != 0)) return
+        nextPlayer.takeTurn()
+    }
+
+    private fun isOver() = table.cards.size == 52
+}
+
+fun main() {
+    println("Indigo Card Game")
+
+    var input: String? = null
+
+    while (input != "yes" && input != "no") {
+        println("Play first?")
+        input = readln()
+    }
+
+    try {
+        Game.start(if(input == "yes") Game.person else Game.computer)
+    } catch (e: GameOverException) {
+        println("Game over")
+        return
+    }
 }
