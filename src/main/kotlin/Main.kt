@@ -46,42 +46,106 @@ interface Player: TurnTaker {
 
 private class GameOverException: Exception()
 
-class Person: Player {
+object Person: Player {
     override val hand = mutableListOf<Card>()
     override val wonCards = mutableListOf<Card>()
     override val name = "Player"
     override fun takeTurn() {
         println("Cards in hand: ${hand.withIndex().joinToString(" ") { "${it.index + 1})${it.value}" }}")
-        var chosenCard: Int? = null
+        val chosenCard = chooseCard()
 
-        while (chosenCard == null || chosenCard !in 1..hand.size) {
+        hand.remove(chosenCard)
+        Table.cards.add(chosenCard)
+        Table.checkIfWon(this)
+        println(Table)
+    }
+
+    private fun chooseCard(): Card {
+        var chosenCardIndex: Int? = null
+
+        while (chosenCardIndex == null || chosenCardIndex !in 1..hand.size) {
             println("Choose a card to play (1-${hand.size}):")
             val input = readln()
             if (input == "exit") throw GameOverException()
-            chosenCard = input.toIntOrNull()
+            chosenCardIndex = input.toIntOrNull()
         }
 
-        Game.table.cards.add(hand.removeAt(chosenCard - 1))
-        Game.table.checkIfWon(this)
-        println(Game.table)
+        return hand[chosenCardIndex - 1]
     }
 }
 
-class Computer: Player {
+object Computer: Player {
     override val wonCards = mutableListOf<Card>()
     override val hand = mutableListOf<Card>()
     override val name = "Computer"
     override fun takeTurn() {
-        val cardToPlay = hand.removeAt(0)
-        println("Computer plays $cardToPlay")
-        Game.table.cards.add(cardToPlay)
-        Game.table.checkIfWon(this)
-        println(Game.table)
+        println(hand.withIndex().joinToString(" ") { it.value.toString() })
+
+        val chosenCard = chooseCard()
+
+        hand.remove(chosenCard)
+        Table.cards.add(chosenCard)
+
+        println("Computer plays $chosenCard")
+        Table.checkIfWon(this)
+        println(Table)
+    }
+
+    private fun chooseCard(): Card {
+        val candidateCards = getCandidateCards()
+
+        return when {
+            hand.size == 1 -> FirstCardStrategy.chooseCard(hand)
+            candidateCards.size == 1 -> FirstCardStrategy.chooseCard(candidateCards)
+            candidateCards.size > 1 -> LeastNeededCandidateCardStrategy.chooseCard(candidateCards, Table.cards.last())
+            else -> LeastNeededCardStrategy.chooseCard(hand)
+        }
+    }
+
+    private fun getCandidateCards(): List<Card> {
+        if (Table.cards.isEmpty()) return emptyList()
+
+        val topCard = Table.cards.last()
+
+        return hand.filter { it.rank == topCard.rank || it.suit == topCard.suit }
+    }
+
+    object FirstCardStrategy {
+        fun chooseCard(cards: List<Card>) = cards.first()
+    }
+
+    object LeastNeededCandidateCardStrategy {
+        fun chooseCard(cards: List<Card>, topCard: Card): Card {
+            val sameSuitCards = cards.filter { it.suit == topCard.suit }
+
+            if (sameSuitCards.size > 1) return sameSuitCards.first()
+
+            val sameRankCards = cards.filter { it.rank == topCard.rank }
+
+            if (sameRankCards.size > 1) return sameRankCards.first()
+
+            return cards.first()
+        }
+    }
+
+    object LeastNeededCardStrategy {
+        fun chooseCard(cards: List<Card>): Card {
+            val sameSuitCards = cards.groupBy { it.suit }.filter { it.value.size > 1 }
+
+            if (sameSuitCards.isNotEmpty()) return sameSuitCards.values.first().first()
+
+            val sameRankCards = cards.groupBy { it.rank }.filter { it.value.size > 1 }
+
+            if (sameRankCards.isNotEmpty()) return sameRankCards.values.first().first()
+
+            return cards.first()
+        }
     }
 }
 
-class Table {
+object Table {
     val cards = mutableListOf<Card>()
+    var lastPlayerThatWon: Player? = null
 
     fun checkIfWon(player: Player) {
         if (cards.size < 2) return
@@ -93,6 +157,7 @@ class Table {
             cards.clear()
             println("${player.name} wins cards")
             Game.printScore()
+            lastPlayerThatWon = player
         }
     }
 
@@ -100,7 +165,7 @@ class Table {
         else "\nNo cards on the table"
 }
 
-class Dealer: TurnTaker {
+object Dealer: TurnTaker {
     private val newDeck = buildList {
         for (rank in Rank.entries) {
             for (suit in Suit.entries) {
@@ -114,23 +179,23 @@ class Dealer: TurnTaker {
     override fun takeTurn() = if (hand.size == 0) newGame() else deal()
 
     private fun newGame() {
-        Game.person.hand.clear()
-        Game.computer.hand.clear()
-        Game.table.cards.clear()
+        Person.hand.clear()
+        Computer.hand.clear()
+        Table.cards.clear()
         hand.clear()
         hand.addAll(newDeck.shuffled())
 
-        Game.table.cards.addAll(hand.take(CARDS_ON_INIT))
+        Table.cards.addAll(hand.take(CARDS_ON_INIT))
         hand = hand.subList(CARDS_ON_INIT, hand.size)
         deal()
 
-        println("Initial cards on the table: ${Game.table.cards.joinToString(" ")}")
-        println(Game.table)
+        println("Initial cards on the table: ${Table.cards.joinToString(" ")}")
+        println(Table)
     }
 
     private fun deal() {
-        dealHand(Game.person)
-        dealHand(Game.computer)
+        dealHand(Person)
+        dealHand(Computer)
     }
 
     private fun dealHand(player: Player) {
@@ -140,48 +205,60 @@ class Dealer: TurnTaker {
 }
 
 object Game {
-    val person = Person()
-    val computer = Computer()
-    val table = Table()
-    private val dealer = Dealer()
-
-    private val turns = mutableListOf<TurnTaker>(dealer)
+    private val turns = mutableListOf<TurnTaker>(Dealer)
     private var turnNumber = 0
-    private var startingPlayer: Player = person
+    private var startingPlayer: Player = Person
     private var turnCount = 0
 
     fun start(startingPlayer: Player) {
         this.startingPlayer = startingPlayer
         turns.add(startingPlayer)
-        if (startingPlayer !== person) turns.add(person)
-        else turns.add(computer)
+        if (startingPlayer !== Person) turns.add(Person)
+        else turns.add(Computer)
 
         while (!isOver()) {
             nextTurn()
         }
 
-        if (table.cards.size != 0) {
-            this.startingPlayer.wonCards.addAll(table.cards)
-            table.cards.clear()
-        }
+        (Table.lastPlayerThatWon?:startingPlayer).wonCards.addAll(Table.cards)
+        Table.cards.clear()
 
         printScore(true)
         println("Game Over")
     }
 
     fun printScore(withBonusPoints: Boolean = false) {
-        val personGetsBonusPoints = person.wonCards.size > computer.wonCards.size
-                || (person.wonCards.size == computer.wonCards.size && startingPlayer == person)
+        val personCards = Person.wonCards.size
+        val computerCards = Computer.wonCards.size
 
-        println("Score: ${person.name} ${person.wonCards.sumOf { it.rank.value } + (if (withBonusPoints && personGetsBonusPoints) 3 else 0)} - ${computer.name} ${computer.wonCards.sumOf { it.rank.value } + (if (withBonusPoints && !personGetsBonusPoints) 3 else 0)}")
-        println("Cards: ${person.name} ${person.wonCards.size} - ${computer.name} ${computer.wonCards.size}")
+        var personScore = Person.wonCards.sumOf { it.rank.value }
+        var computerScore = Computer.wonCards.sumOf { it.rank.value }
+
+        if (withBonusPoints) {
+            if (personCards > computerCards) {
+                personScore += 3
+            } else if (computerCards > personCards) {
+                computerScore += 3
+            } else if (Person == startingPlayer) {
+                personScore += 3
+            } else {
+                computerScore += 3
+            }
+        }
+
+        val padLength = 1
+
+        println("""
+            Score: ${Person.name} ${personScore.toString().padStart(padLength, ' ')} - ${Computer.name} ${computerScore.toString().padStart(padLength, ' ')}
+            Cards: ${Person.name} ${personCards.toString().padStart(padLength, ' ')} - ${Computer.name} ${computerCards.toString().padStart(padLength, ' ')}
+        """.trimIndent().trim())
     }
 
     private fun nextTurn() {
         val nextPlayer = turns[turnNumber % turns.size]
         turnNumber++
 
-        if (nextPlayer === dealer && (person.hand.size != 0 || computer.hand.size != 0)) return
+        if (nextPlayer === Dealer && (Person.hand.size != 0 || Computer.hand.size != 0)) return
         nextPlayer.takeTurn()
         turnCount++
     }
@@ -200,7 +277,7 @@ fun main() {
     }
 
     try {
-        Game.start(if(input == "yes") Game.person else Game.computer)
+        Game.start(if(input == "yes") Person else Computer)
     } catch (e: GameOverException) {
         println("Game Over")
         return
